@@ -1,0 +1,68 @@
+{
+    "version": "2.0.0",
+    "options": {
+        "cwd": "${workspaceFolder}"
+    },
+    "tasks": [
+        {
+            "label": "nix: configure",
+            "type": "shell",
+            "command": "nix-shell",
+            "args": [
+                "--run",
+                "cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug"
+            ],
+            "problemMatcher": []
+        },
+        {
+            "label": "nix: build",
+            "type": "shell",
+            "command": "nix-shell",
+            "args": [
+                "--run",
+                "cmake --build build -j"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "problemMatcher": [
+                "$gcc"
+            ],
+            "dependsOn": "nix: configure"
+        },
+        {
+            "label": "nix: clean",
+            "type": "shell",
+            "command": "nix-shell",
+            "args": [
+                "--run",
+                "cmake --build build --target clean"
+            ],
+            "problemMatcher": []
+        },
+        {
+            "label": "nix: rebuild",
+            "type": "shell",
+            "command": "nix-shell",
+            "args": [
+                "--run",
+                "rm -rf build && cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug && cmake --build build -j"
+            ],
+            "problemMatcher": [
+                "$gcc"
+            ]
+        },
+        {
+            "label": "nix: run",
+            "type": "shell",
+            "command": "nix-shell",
+            "args": [
+                "--run",
+                "./build/guitest"
+            ],
+            "problemMatcher": [],
+            "dependsOn": "nix: build"
+        }
+    ]
+}

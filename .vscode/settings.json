@@ -1,0 +1,11 @@
+{
+    // This project builds through nix-shell (see shell.nix). Use the tasks in
+    // .vscode/tasks.json (Terminal > Run Build Task, default: "nix: build")
+    // rather than the CMake Tools extension, which would call cmake outside the
+    // nix environment and fail to find the native GL/X11 libraries.
+    "cmake.configureOnOpen": false,
+    "C_Cpp.default.compileCommands": "${workspaceFolder}/build/compile_commands.json",
+    "files.associations": {
+        "*.h": "cpp"
+    }
+}
