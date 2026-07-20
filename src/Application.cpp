@@ -114,6 +114,13 @@ void presetPoolUI(const char *title, int selCount, const Pool &pool,
   ImGui::End();
 }
 
+// Clear (eraser / circle-slash) icon.
+void drawClearIcon(ImDrawList *dl, ImVec2 c, float r, ImU32 col) {
+  dl->AddCircle(c, r, col, 0, 1.8f);
+  const float d = r * 0.707f;
+  dl->AddLine(ImVec2(c.x - d, c.y - d), ImVec2(c.x + d, c.y + d), col, 1.8f);
+}
+
 const char *attributeName(LightEngine::GDTF::Attribute a) {
   using LightEngine::GDTF::Attribute;
   switch (a) {
@@ -212,6 +219,7 @@ void Application::run() {
     // and tabbed. PassthruCentralNode keeps the 3D scene visible in the middle.
     ImGui::DockSpaceOverViewport(0, ImGui::GetMainViewport(),
                                  ImGuiDockNodeFlags_PassthruCentralNode);
+    handleHotkeys();
     renderUI();
     handleCamera();
     if (m_tool == Tool::Select)
@@ -256,6 +264,9 @@ void Application::renderToolbar() {
   if (iconButton("##move", m_tool == Tool::Move, "Move selected on ground",
                  drawMoveIcon))
     m_tool = Tool::Move;
+  ImGui::SameLine();
+  if (iconButton("##clear", false, "Clear programmer (C)", drawClearIcon))
+    clearProgrammer();
 
   ImGui::TextDisabled(m_tool == Tool::Select
                           ? "Left-drag: marquee select"
@@ -419,6 +430,12 @@ void Application::renderCommandWindow() {
     ImGui::SetScrollHereY(1.0f);
   ImGui::EndChild();
 
+  // Auto-focus: if the user starts typing anywhere and no other field is
+  // active, redirect the keystrokes into the command line.
+  if (ImGui::GetIO().InputQueueCharacters.Size > 0 &&
+      !ImGui::IsAnyItemActive())
+    ImGui::SetKeyboardFocusHere();
+
   // Input line.
   ImGui::SetNextItemWidth(-1.0f);
   if (ImGui::InputText("##cmd", m_cmdInput, sizeof(m_cmdInput),
@@ -528,6 +545,22 @@ void Application::renderFixtureListWindow() {
     ImGui::EndTable();
   }
   ImGui::End();
+}
+
+void Application::clearProgrammer() {
+  m_engine.clear();
+  m_engine.update();
+  syncCubesFromEngine();
+}
+
+void Application::handleHotkeys() {
+  ImGuiIO &io = ImGui::GetIO();
+  // Only act as a global shortcut when no text field is capturing input.
+  if (!io.WantTextInput && ImGui::IsKeyPressed(ImGuiKey_C, false)) {
+    clearProgrammer();
+    // Swallow the 'c' so it doesn't also get typed into the command line.
+    io.InputQueueCharacters.resize(0);
+  }
 }
 
 void Application::syncEngineFromCubes() {

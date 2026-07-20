@@ -44,6 +44,11 @@ private:
   void renderCommandWindow();
   void runCommand(const char *line);
 
+  // Global keyboard shortcuts (only when not typing in a field).
+  void handleHotkeys();
+  // Clear the programmer (selection + edits) and reflect it everywhere.
+  void clearProgrammer();
+
   // Selection is unified: the engine's programmer selection is the single
   // source of truth. Push cube flags -> engine, or pull engine -> cube flags.
   void syncEngineFromCubes();
