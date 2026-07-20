@@ -10,6 +10,7 @@
 #include "LightEngine/Fixture/Fixture.h"
 #include "LightEngine/GDTF/LogicalChannel.h"
 
+#include <algorithm>
 #include <cmath>
 
 namespace {
@@ -48,6 +49,15 @@ bool Application::init() {
 
   initImGui();
   m_shader = std::make_unique<Shader>("data/cube.vert", "data/cube.frag");
+
+#ifdef LE_DATA_DIR
+  m_engine.loadCommands(LE_DATA_DIR "/commands.txt", LE_DATA_DIR "/commands.syn");
+  m_commandsLoaded = true;
+  m_cmdLog.emplace_back("Commands loaded.");
+#else
+  m_cmdLog.emplace_back("LE_DATA_DIR not defined; commands unavailable.");
+#endif
+
   patchFixtures(1, 10);
   return true;
 }
@@ -57,6 +67,7 @@ void Application::initImGui() {
   ImGui::CreateContext();
   ImGuiIO &io = ImGui::GetIO();
   io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+  io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
   ImGui::StyleColorsDark();
   ImGui_ImplGlfw_InitForOpenGL(m_window.window, true);
   ImGui_ImplOpenGL3_Init("#version 330");
@@ -83,6 +94,7 @@ void Application::patchFixtures(uint16_t universe, uint16_t amount) {
     m_fixtures.push_back(std::move(fc));
   }
   layoutFixtures();
+  m_camDist = m_rowWidth * 0.6f + 8.0f;
 }
 
 void Application::layoutFixtures() {
@@ -90,8 +102,8 @@ void Application::layoutFixtures() {
   const size_t n = m_fixtures.size();
   m_rowWidth = spacing * (n > 0 ? n - 1 : 0);
   for (size_t i = 0; i < n; ++i) {
-    float hue = n > 0 ? float(i) / float(n) : 0.0f;
-    m_fixtures[i].cube().setColor(hsv2rgb(hue, 0.7f, 0.9f));
+    // Color is driven by the engine each frame (see update()); only lay out
+    // the row position here.
     m_fixtures[i].cube().setPosition(
         glm::vec3(spacing * float(i) - m_rowWidth * 0.5f, 0.0f, 0.0f));
   }
@@ -105,8 +117,16 @@ void Application::run() {
     ImGui_ImplGlfw_NewFrame();
     ImGui::NewFrame();
 
+    // Full-viewport dockspace: windows can be docked/snapped to edges, split
+    // and tabbed. PassthruCentralNode keeps the 3D scene visible in the middle.
+    ImGui::DockSpaceOverViewport(0, ImGui::GetMainViewport(),
+                                 ImGuiDockNodeFlags_PassthruCentralNode);
     renderUI();
-    handleSelection();
+    handleCamera();
+    if (m_tool == Tool::Select)
+      handleSelection();
+    else
+      handleMove();
     update(ImGui::GetIO().DeltaTime);
     render();
 
@@ -125,8 +145,170 @@ void Application::renderUI() {
   ImGui::Text("%.1f FPS", ImGui::GetIO().Framerate);
   ImGui::End();
 
+  renderToolbar();
   renderPatchWindow();
   renderFixtureListWindow();
+  renderGroupWindow();
+  renderCommandWindow();
+}
+
+void Application::renderToolbar() {
+  ImGui::Begin("Toolbar");
+
+  // Tool mode.
+  if (ImGui::RadioButton("Select", m_tool == Tool::Select))
+    m_tool = Tool::Select;
+  ImGui::SameLine();
+  if (ImGui::RadioButton("Move", m_tool == Tool::Move))
+    m_tool = Tool::Move;
+
+  ImGui::TextDisabled(m_tool == Tool::Select
+                          ? "Left-drag: marquee select"
+                          : "Left-drag: move selected on ground");
+  ImGui::Separator();
+
+  // Count selection and compute its centroid.
+  glm::vec3 center(0.0f);
+  int n = 0;
+  for (auto &fc : m_fixtures)
+    if (fc.cube().selected()) {
+      center += fc.cube().position();
+      ++n;
+    }
+  ImGui::Text("%d selected", n);
+
+  if (n > 0) {
+    center /= float(n);
+    // Editing the centroid moves the whole selection by the delta.
+    glm::vec3 newCenter = center;
+    if (ImGui::DragFloat3("position", &newCenter.x, 0.05f)) {
+      glm::vec3 delta = newCenter - center;
+      for (auto &fc : m_fixtures)
+        if (fc.cube().selected())
+          fc.cube().setPosition(fc.cube().position() + delta);
+    }
+    if (ImGui::Button("Drop to ground (y=0)")) {
+      for (auto &fc : m_fixtures)
+        if (fc.cube().selected()) {
+          glm::vec3 p = fc.cube().position();
+          p.y = 0.0f;
+          fc.cube().setPosition(p);
+        }
+    }
+  } else {
+    ImGui::TextDisabled("(select fixtures to position them)");
+  }
+
+  ImGui::Separator();
+  ImGui::Text("Camera");
+  ImGui::DragFloat("zoom", &m_camDist, 0.2f, 1.0f, 200.0f);
+  ImGui::DragFloat3("target", &m_camTarget.x, 0.05f);
+  ImGui::TextDisabled("Scroll: zoom  -  Right-drag: pan");
+
+  ImGui::End();
+}
+
+void Application::runCommand(const char *line) {
+  if (!line || line[0] == '\0')
+    return;
+
+  m_cmdLog.push_back(std::string("> ") + line);
+  if (!m_commandsLoaded) {
+    m_cmdLog.emplace_back("  (commands not loaded)");
+    return;
+  }
+
+  if (!m_engine.command(line)) {
+    m_cmdLog.emplace_back("  parse error");
+    return;
+  }
+  // Tick the engine so the command's edits compose and resolve immediately.
+  m_engine.update();
+  const auto &prog = m_engine.programmer();
+
+  // Reflect the engine's programmer selection onto the cubes.
+  syncCubesFromEngine();
+
+  char msg[128];
+  std::snprintf(msg, sizeof(msg), "  ok [selection=%zu edits=%zu]",
+                prog.selection().size(), prog.edits().size());
+  m_cmdLog.emplace_back(msg);
+}
+
+void Application::renderGroupWindow() {
+  ImGui::Begin("Groups");
+
+  // Store the current selection as a new group (next free slot).
+  int selCount = int(m_engine.programmer().selection().size());
+  ImGui::BeginDisabled(selCount == 0);
+  if (ImGui::Button("Store selection as group")) {
+    m_engine.storeGroup();
+  }
+  ImGui::EndDisabled();
+  ImGui::SameLine();
+  ImGui::TextDisabled("(%d selected)", selCount);
+  ImGui::Separator();
+
+  const auto &groups = m_engine.stored().groups();
+  if (groups.empty()) {
+    ImGui::TextDisabled("No groups stored.");
+  } else {
+    for (const auto &[num, g] : groups) {
+      ImGui::PushID(int(num));
+      const std::string &name = g->name();
+      std::vector<uint16_t> fids = g->fids();
+
+      char label[160];
+      std::snprintf(label, sizeof(label), "#%u %s  (%zu fixtures)",
+                    unsigned(num), name.empty() ? "(unnamed)" : name.c_str(),
+                    fids.size());
+
+      if (ImGui::Button("Select")) {
+        m_engine.selectGroup(num);
+        m_engine.update();
+        syncCubesFromEngine();
+      }
+      ImGui::SameLine();
+      if (ImGui::TreeNode(label)) {
+        std::string ids;
+        for (size_t i = 0; i < fids.size(); ++i) {
+          if (i)
+            ids += ", ";
+          ids += std::to_string(fids[i]);
+        }
+        ImGui::TextWrapped("FIDs: %s", ids.c_str());
+        ImGui::TreePop();
+      }
+      ImGui::PopID();
+    }
+  }
+
+  ImGui::End();
+}
+
+void Application::renderCommandWindow() {
+  ImGui::SetNextWindowSize(ImVec2(420, 240), ImGuiCond_FirstUseEver);
+  ImGui::Begin("Command");
+
+  // Scrolling log.
+  const float footer = ImGui::GetFrameHeightWithSpacing();
+  ImGui::BeginChild("log", ImVec2(0, -footer), true,
+                    ImGuiWindowFlags_HorizontalScrollbar);
+  for (const auto &line : m_cmdLog)
+    ImGui::TextUnformatted(line.c_str());
+  if (ImGui::GetScrollY() >= ImGui::GetScrollMaxY())
+    ImGui::SetScrollHereY(1.0f);
+  ImGui::EndChild();
+
+  // Input line.
+  ImGui::SetNextItemWidth(-1.0f);
+  if (ImGui::InputText("##cmd", m_cmdInput, sizeof(m_cmdInput),
+                       ImGuiInputTextFlags_EnterReturnsTrue)) {
+    runCommand(m_cmdInput);
+    m_cmdInput[0] = '\0';
+    ImGui::SetKeyboardFocusHere(-1); // keep focus on the input
+  }
+  ImGui::End();
 }
 
 void Application::renderPatchWindow() {
@@ -169,6 +351,7 @@ void Application::renderFixtureListWindow() {
         for (auto &other : m_fixtures)
           other.cube().setSelected(false);
       fc.cube().setSelected(ctrl ? !fc.cube().selected() : true);
+      syncEngineFromCubes();
     }
 
     if (ImGui::TreeNode("details")) {
@@ -192,14 +375,122 @@ void Application::renderFixtureListWindow() {
         ImGui::TextDisabled("(fixture data unavailable)");
       }
 
-      ImGui::ColorEdit3("cube color", &fc.cube().color().x,
-                        ImGuiColorEditFlags_NoInputs);
+      // Live values as composed by the engine this frame.
+      const LightEngine::Engine::FixtureValues *v = m_engine.values(fid);
+      ImGui::Separator();
+      if (v && v->color)
+        ImGui::Text("Color   : H %.0f  S %.2f", v->color->h, v->color->s);
+      else
+        ImGui::TextDisabled("Color   : (none)");
+      if (v && v->intensity)
+        ImGui::Text("Dimmer  : %.0f%%", *v->intensity * 100.0f);
+      else
+        ImGui::TextDisabled("Dimmer  : (none)");
+
+      const glm::vec3 &c = fc.cube().color();
+      ImGui::ColorButton("##swatch", ImVec4(c.r, c.g, c.b, 1.0f), 0,
+                         ImVec2(40, 20));
+      ImGui::SameLine();
+      ImGui::TextUnformatted("output");
       ImGui::TreePop();
     }
 
     ImGui::PopID();
   }
   ImGui::End();
+}
+
+void Application::syncEngineFromCubes() {
+  std::vector<uint16_t> fids;
+  for (auto &fc : m_fixtures)
+    if (fc.cube().selected())
+      fids.push_back(fc.fids().front());
+  m_engine.programmer().select(fids);
+}
+
+void Application::syncCubesFromEngine() {
+  std::vector<uint16_t> sel = m_engine.programmer().selection().fids();
+  for (auto &fc : m_fixtures) {
+    bool s = std::find(sel.begin(), sel.end(), fc.fids().front()) != sel.end();
+    fc.cube().setSelected(s);
+  }
+}
+
+std::optional<glm::vec3>
+Application::groundHit(const glm::vec2 &mouse) const {
+  ImGuiIO &io = ImGui::GetIO();
+  if (io.DisplaySize.x <= 0 || io.DisplaySize.y <= 0)
+    return std::nullopt;
+
+  // Mouse (logical points) -> NDC.
+  float ndcX = 2.0f * mouse.x / io.DisplaySize.x - 1.0f;
+  float ndcY = 1.0f - 2.0f * mouse.y / io.DisplaySize.y;
+
+  glm::mat4 invVP = glm::inverse(m_proj * m_view);
+  glm::vec4 pNear = invVP * glm::vec4(ndcX, ndcY, -1.0f, 1.0f);
+  glm::vec4 pFar = invVP * glm::vec4(ndcX, ndcY, 1.0f, 1.0f);
+  if (pNear.w == 0.0f || pFar.w == 0.0f)
+    return std::nullopt;
+  glm::vec3 origin = glm::vec3(pNear) / pNear.w;
+  glm::vec3 dir = glm::normalize(glm::vec3(pFar) / pFar.w - origin);
+
+  // Intersect y = 0.
+  if (std::fabs(dir.y) < 1e-6f)
+    return std::nullopt;
+  float t = -origin.y / dir.y;
+  if (t < 0.0f)
+    return std::nullopt;
+  return origin + dir * t;
+}
+
+void Application::handleCamera() {
+  ImGuiIO &io = ImGui::GetIO();
+  if (io.WantCaptureMouse)
+    return;
+
+  // Zoom with the scroll wheel (exponential feel).
+  if (io.MouseWheel != 0.0f) {
+    m_camDist *= std::pow(0.9f, io.MouseWheel);
+    m_camDist = glm::clamp(m_camDist, 1.0f, 200.0f);
+  }
+
+  // Pan with the right mouse button: shift the target along the view plane.
+  if (ImGui::IsMouseDragging(ImGuiMouseButton_Right)) {
+    ImVec2 d = ImGui::GetMouseDragDelta(ImGuiMouseButton_Right);
+    ImGui::ResetMouseDragDelta(ImGuiMouseButton_Right);
+    // Camera basis in world space (rows of the view rotation).
+    glm::vec3 right(m_view[0][0], m_view[1][0], m_view[2][0]);
+    glm::vec3 up(m_view[0][1], m_view[1][1], m_view[2][1]);
+    float scale = m_camDist * 0.0015f;
+    m_camTarget += (-d.x * right + d.y * up) * scale;
+  }
+}
+
+void Application::handleMove() {
+  ImGuiIO &io = ImGui::GetIO();
+  if (io.WantCaptureMouse && !m_moving)
+    return;
+
+  const glm::vec2 mouse(io.MousePos.x, io.MousePos.y);
+
+  if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+    if (auto hit = groundHit(mouse)) {
+      m_moving = true;
+      m_prevGround = *hit;
+    }
+  }
+
+  if (m_moving) {
+    if (auto hit = groundHit(mouse)) {
+      glm::vec3 delta = *hit - m_prevGround;
+      m_prevGround = *hit;
+      for (auto &fc : m_fixtures)
+        if (fc.cube().selected())
+          fc.cube().setPosition(fc.cube().position() + delta);
+    }
+    if (ImGui::IsMouseReleased(ImGuiMouseButton_Left))
+      m_moving = false;
+  }
 }
 
 void Application::handleSelection() {
@@ -250,6 +541,8 @@ void Application::handleSelection() {
       bool inside = px >= lo.x && px <= hi.x && py >= lo.y && py <= hi.y;
       fc.cube().setSelected(inside);
     }
+    // Propagate the new selection to the engine so it's the same everywhere.
+    syncEngineFromCubes();
   }
 }
 
@@ -259,9 +552,27 @@ void Application::update(float dt) {
   if (m_angle >= 360.0f)
     m_angle -= 360.0f;
 
-  // Spin each cube in place; its row position was set in setupFixtures().
-  for (auto &fc : m_fixtures)
+  // Compose the engine's layers into this frame's merged values.
+  m_engine.update(dt);
+
+  for (auto &fc : m_fixtures) {
+    // Read the fixture's live color/intensity from the engine frame.
+    const LightEngine::Engine::FixtureValues *v =
+        m_engine.values(fc.fids().front());
+
+    // Hue/sat come from the color contribution; brightness from the dimmer.
+    // An unlit fixture (no intensity) renders black, mirroring the real state.
+    float hue = 0.0f, sat = 0.0f;
+    if (v && v->color) {
+      hue = v->color->h / 360.0f;
+      sat = v->color->s;
+    }
+    float intensity = (v && v->intensity) ? *v->intensity : 0.0f;
+    fc.cube().setColor(hsv2rgb(hue, sat, 1.0f) * intensity);
+
+    // Spin each cube in place; its row position was set in patchFixtures().
     fc.cube().setRotation(glm::vec3(0.0f, m_angle, 0.0f));
+  }
 }
 
 void Application::render() {
@@ -270,9 +581,10 @@ void Application::render() {
   glClearColor(m_clearColor.r, m_clearColor.g, m_clearColor.b, 1.0f);
   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-  float dist = m_rowWidth * 0.6f + 5.0f;
-  m_view = glm::lookAt(glm::vec3(0.0f, 2.0f, dist), glm::vec3(0.0f),
-                       glm::vec3(0.0f, 1.0f, 0.0f));
+  // Eye sits behind and above the target at m_camDist along a fixed heading.
+  const glm::vec3 dir = glm::normalize(glm::vec3(0.0f, 0.4f, 1.0f));
+  glm::vec3 eye = m_camTarget + dir * m_camDist;
+  m_view = glm::lookAt(eye, m_camTarget, glm::vec3(0.0f, 1.0f, 0.0f));
   m_proj = glm::perspective(
       glm::radians(45.0f),
       m_fbHeight > 0 ? float(m_fbWidth) / float(m_fbHeight) : 1.0f, 0.1f,

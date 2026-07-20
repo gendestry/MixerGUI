@@ -73,7 +73,8 @@ target_link_libraries(guitest PRIVATE
 
 if(HAVE_LIGHTENGINE)
     target_link_libraries(guitest PRIVATE LightEngine::LightEngine)
-    target_compile_definitions(guitest PRIVATE HAVE_LIGHTENGINE)
+    target_compile_definitions(guitest PRIVATE HAVE_LIGHTENGINE
+        LE_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/lib/LightEngine/include/LightEngine/Commands/data")
 endif()
 
 # OpenGL is needed on some platforms for linking
