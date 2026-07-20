@@ -39,6 +39,8 @@ private:
   void renderPatchWindow();
   void renderFixtureListWindow();
   void renderGroupWindow();
+  void renderColorPresetWindow();
+  void renderDimmerPresetWindow();
   void renderCommandWindow();
   void runCommand(const char *line);
 
