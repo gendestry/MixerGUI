@@ -28,13 +28,12 @@ glm::vec3 hsv2rgb(float h, float s, float v) {
 // A square toggle button that draws a custom icon; returns true when clicked.
 // `draw(dl, center, r, col)` renders the icon centered in the button.
 template <class DrawFn>
-bool iconButton(const char *id, bool active, const char *tooltip,
-                DrawFn draw) {
+bool iconButton(const char *id, bool active, const char *tooltip, DrawFn draw) {
   const float sz = ImGui::GetFrameHeight() * 1.4f;
   ImVec2 p = ImGui::GetCursorScreenPos();
 
-  ImU32 bg = ImGui::GetColorU32(active ? ImGuiCol_ButtonActive
-                                       : ImGuiCol_Button);
+  ImU32 bg =
+      ImGui::GetColorU32(active ? ImGuiCol_ButtonActive : ImGuiCol_Button);
   bool clicked = ImGui::InvisibleButton(id, ImVec2(sz, sz));
   if (ImGui::IsItemHovered()) {
     bg = ImGui::GetColorU32(ImGuiCol_ButtonHovered);
@@ -149,7 +148,8 @@ bool Application::init() {
   m_shader = std::make_unique<Shader>("data/cube.vert", "data/cube.frag");
 
 #ifdef LE_DATA_DIR
-  m_engine.loadCommands(LE_DATA_DIR "/commands.txt", LE_DATA_DIR "/commands.syn");
+  m_engine.loadCommands(LE_DATA_DIR "/commands.txt",
+                        LE_DATA_DIR "/commands.syn");
   m_commandsLoaded = true;
   m_cmdLog.emplace_back("Commands loaded.");
 #else
@@ -166,7 +166,16 @@ void Application::initImGui() {
   ImGuiIO &io = ImGui::GetIO();
   io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
   io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+  io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
   ImGui::StyleColorsDark();
+
+  // When viewports are enabled, tweak WindowRounding/WindowBg so platform
+  // windows (dragged outside the main window) look identical to internal ones.
+  if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable) {
+    ImGuiStyle &style = ImGui::GetStyle();
+    style.WindowRounding = 0.0f;
+    style.Colors[ImGuiCol_WindowBg].w = 1.0f;
+  }
   ImGui_ImplGlfw_InitForOpenGL(m_window.window, true);
   ImGui_ImplOpenGL3_Init("#version 330");
 }
@@ -232,17 +241,27 @@ void Application::run() {
     ImGui::Render();
     ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 
+    // Render any windows that were dragged outside the main window as their own
+    // OS-level windows. Must restore our GL context afterwards.
+    ImGuiIO &io = ImGui::GetIO();
+    if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable) {
+      GLFWwindow *backup = glfwGetCurrentContext();
+      ImGui::UpdatePlatformWindows();
+      ImGui::RenderPlatformWindowsDefault();
+      glfwMakeContextCurrent(backup);
+    }
+
     glfwSwapBuffers(m_window.window);
   }
 }
 
 void Application::renderUI() {
-  ImGui::Begin("Scene");
-  ImGui::Checkbox("spin", &m_spinning);
-  ImGui::SliderFloat("angle", &m_angle, 0.0f, 360.0f);
-  ImGui::ColorEdit3("clear color", &m_clearColor.x);
-  ImGui::Text("%.1f FPS", ImGui::GetIO().Framerate);
-  ImGui::End();
+  // ImGui::Begin("Scene");
+  // ImGui::Checkbox("spin", &m_spinning);
+  // ImGui::SliderFloat("angle", &m_angle, 0.0f, 360.0f);
+  // ImGui::ColorEdit3("clear color", &m_clearColor.x);
+  // ImGui::Text("%.1f FPS", ImGui::GetIO().Framerate);
+  // ImGui::End();
 
   renderToolbar();
   renderPatchWindow();
@@ -396,7 +415,9 @@ void Application::renderColorPresetWindow() {
   int selCount = int(m_engine.programmer().selection().size());
   presetPoolUI(
       "Color Presets", selCount, m_engine.stored().colorPresets(),
-      [&] { m_engine.storeColorPreset(m_engine.stored().colorPresets().nextFree()); },
+      [&] {
+        m_engine.storeColorPreset(m_engine.stored().colorPresets().nextFree());
+      },
       [&](uint32_t num) {
         m_engine.recallColorPreset(num);
         m_engine.update();
@@ -408,7 +429,8 @@ void Application::renderDimmerPresetWindow() {
   presetPoolUI(
       "Dimmer Presets", selCount, m_engine.stored().dimmerPresets(),
       [&] {
-        m_engine.storeDimmerPreset(m_engine.stored().dimmerPresets().nextFree());
+        m_engine.storeDimmerPreset(
+            m_engine.stored().dimmerPresets().nextFree());
       },
       [&](uint32_t num) {
         m_engine.recallDimmerPreset(num);
@@ -432,8 +454,7 @@ void Application::renderCommandWindow() {
 
   // Auto-focus: if the user starts typing anywhere and no other field is
   // active, redirect the keystrokes into the command line.
-  if (ImGui::GetIO().InputQueueCharacters.Size > 0 &&
-      !ImGui::IsAnyItemActive())
+  if (ImGui::GetIO().InputQueueCharacters.Size > 0 && !ImGui::IsAnyItemActive())
     ImGui::SetKeyboardFocusHere();
 
   // Input line.
@@ -579,8 +600,7 @@ void Application::syncCubesFromEngine() {
   }
 }
 
-std::optional<glm::vec3>
-Application::groundHit(const glm::vec2 &mouse) const {
+std::optional<glm::vec3> Application::groundHit(const glm::vec2 &mouse) const {
   ImGuiIO &io = ImGui::GetIO();
   if (io.DisplaySize.x <= 0 || io.DisplaySize.y <= 0)
     return std::nullopt;
@@ -679,8 +699,8 @@ void Application::handleSelection() {
   // Draw the marquee.
   ImGui::GetForegroundDrawList()->AddRectFilled(
       ImVec2(lo.x, lo.y), ImVec2(hi.x, hi.y), IM_COL32(255, 205, 25, 40));
-  ImGui::GetForegroundDrawList()->AddRect(ImVec2(lo.x, lo.y), ImVec2(hi.x, hi.y),
-                                          IM_COL32(255, 205, 25, 200));
+  ImGui::GetForegroundDrawList()->AddRect(
+      ImVec2(lo.x, lo.y), ImVec2(hi.x, hi.y), IM_COL32(255, 205, 25, 200));
 
   if (ImGui::IsMouseReleased(ImGuiMouseButton_Left)) {
     m_dragging = false;
