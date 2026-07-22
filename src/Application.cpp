@@ -22,122 +22,6 @@ glm::vec3 hsv2rgb(float h, float s, float v) {
   glm::vec3 c = glm::clamp(glm::vec3(r, g, b), 0.0f, 1.0f);
   return v * glm::mix(glm::vec3(1.0f), c, s);
 }
-
-// --- Vector icons drawn onto a square toggle button (no icon font needed) ---
-
-// A square toggle button that draws a custom icon; returns true when clicked.
-// `draw(dl, center, r, col)` renders the icon centered in the button.
-template <class DrawFn>
-bool iconButton(const char *id, bool active, const char *tooltip, DrawFn draw) {
-  const float sz = ImGui::GetFrameHeight() * 1.4f;
-  ImVec2 p = ImGui::GetCursorScreenPos();
-
-  ImU32 bg =
-      ImGui::GetColorU32(active ? ImGuiCol_ButtonActive : ImGuiCol_Button);
-  bool clicked = ImGui::InvisibleButton(id, ImVec2(sz, sz));
-  if (ImGui::IsItemHovered()) {
-    bg = ImGui::GetColorU32(ImGuiCol_ButtonHovered);
-    if (tooltip)
-      ImGui::SetTooltip("%s", tooltip);
-  }
-
-  ImDrawList *dl = ImGui::GetWindowDrawList();
-  dl->AddRectFilled(p, ImVec2(p.x + sz, p.y + sz), bg, 4.0f);
-  if (active)
-    dl->AddRect(p, ImVec2(p.x + sz, p.y + sz),
-                ImGui::GetColorU32(ImVec4(1.0f, 0.8f, 0.1f, 1.0f)), 4.0f, 0,
-                2.0f);
-
-  ImVec2 c(p.x + sz * 0.5f, p.y + sz * 0.5f);
-  ImU32 col = ImGui::GetColorU32(ImGuiCol_Text);
-  draw(dl, c, sz * 0.32f, col);
-  return clicked;
-}
-
-// Mouse-pointer (select) icon.
-void drawSelectIcon(ImDrawList *dl, ImVec2 c, float r, ImU32 col) {
-  ImVec2 a(c.x - r * 0.7f, c.y - r);
-  ImVec2 b(c.x - r * 0.7f, c.y + r * 0.9f);
-  ImVec2 d(c.x - r * 0.1f, c.y + r * 0.25f);
-  ImVec2 e(c.x + r * 0.9f, c.y + r * 0.1f);
-  dl->AddTriangleFilled(a, b, d, col);
-  dl->AddTriangleFilled(a, d, e, col);
-}
-
-// Four-way move (arrows) icon.
-void drawMoveIcon(ImDrawList *dl, ImVec2 c, float r, ImU32 col) {
-  dl->AddLine(ImVec2(c.x - r, c.y), ImVec2(c.x + r, c.y), col, 1.5f);
-  dl->AddLine(ImVec2(c.x, c.y - r), ImVec2(c.x, c.y + r), col, 1.5f);
-  const float h = r * 0.4f;
-  // left / right / up / down arrowheads
-  dl->AddTriangleFilled(ImVec2(c.x - r, c.y), ImVec2(c.x - r + h, c.y - h),
-                        ImVec2(c.x - r + h, c.y + h), col);
-  dl->AddTriangleFilled(ImVec2(c.x + r, c.y), ImVec2(c.x + r - h, c.y - h),
-                        ImVec2(c.x + r - h, c.y + h), col);
-  dl->AddTriangleFilled(ImVec2(c.x, c.y - r), ImVec2(c.x - h, c.y - r + h),
-                        ImVec2(c.x + h, c.y - r + h), col);
-  dl->AddTriangleFilled(ImVec2(c.x, c.y + r), ImVec2(c.x - h, c.y + r - h),
-                        ImVec2(c.x + h, c.y + r - h), col);
-}
-
-// Shared UI for a numbered preset pool: a "Store" button (captures the current
-// selection into the next free slot) and a list with per-preset "Recall".
-template <class Pool, class StoreFn, class RecallFn>
-void presetPoolUI(const char *title, int selCount, const Pool &pool,
-                  StoreFn store, RecallFn recall) {
-  ImGui::Begin(title);
-
-  ImGui::BeginDisabled(selCount == 0);
-  if (ImGui::Button("Store from selection"))
-    store();
-  ImGui::EndDisabled();
-  ImGui::SameLine();
-  ImGui::TextDisabled("(%d selected)", selCount);
-  ImGui::Separator();
-
-  if (pool.empty()) {
-    ImGui::TextDisabled("No presets stored.");
-  } else {
-    for (const auto &[num, preset] : pool) {
-      ImGui::PushID(int(num));
-      if (ImGui::Button("Recall"))
-        recall(num);
-      ImGui::SameLine();
-      const std::string &name = preset->name();
-      ImGui::Text("#%u %s  (%zu fixtures)", unsigned(num),
-                  name.empty() ? "(unnamed)" : name.c_str(), preset->size());
-      ImGui::PopID();
-    }
-  }
-
-  ImGui::End();
-}
-
-// Clear (eraser / circle-slash) icon.
-void drawClearIcon(ImDrawList *dl, ImVec2 c, float r, ImU32 col) {
-  dl->AddCircle(c, r, col, 0, 1.8f);
-  const float d = r * 0.707f;
-  dl->AddLine(ImVec2(c.x - d, c.y - d), ImVec2(c.x + d, c.y + d), col, 1.8f);
-}
-
-const char *attributeName(LightEngine::GDTF::Attribute a) {
-  using LightEngine::GDTF::Attribute;
-  switch (a) {
-  case Attribute::DIMMER:
-    return "Dimmer";
-  case Attribute::VDIMMER:
-    return "Virtual Dimmer";
-  case Attribute::COLOR_R:
-    return "Red";
-  case Attribute::COLOR_G:
-    return "Green";
-  case Attribute::COLOR_B:
-    return "Blue";
-  case Attribute::COLOR_W:
-    return "White";
-  }
-  return "Unknown";
-}
 } // namespace
 
 bool Application::init() {
@@ -156,7 +40,7 @@ bool Application::init() {
   m_cmdLog.emplace_back("LE_DATA_DIR not defined; commands unavailable.");
 #endif
 
-  patchFixtures(1, 10);
+  // Start with an empty scene; fixtures are added via the Patch window.
   return true;
 }
 
@@ -272,302 +156,6 @@ void Application::renderUI() {
   renderCommandWindow();
 }
 
-void Application::renderToolbar() {
-  ImGui::Begin("Toolbar");
-
-  // Tool mode (icon buttons).
-  if (iconButton("##select", m_tool == Tool::Select, "Select (marquee)",
-                 drawSelectIcon))
-    m_tool = Tool::Select;
-  ImGui::SameLine();
-  if (iconButton("##move", m_tool == Tool::Move, "Move selected on ground",
-                 drawMoveIcon))
-    m_tool = Tool::Move;
-  ImGui::SameLine();
-  if (iconButton("##clear", false, "Clear programmer (C)", drawClearIcon))
-    clearProgrammer();
-
-  ImGui::TextDisabled(m_tool == Tool::Select
-                          ? "Left-drag: marquee select"
-                          : "Left-drag: move selected on ground");
-  ImGui::Separator();
-
-  // Count selection and compute its centroid.
-  glm::vec3 center(0.0f);
-  int n = 0;
-  for (auto &fc : m_fixtures)
-    if (fc.cube().selected()) {
-      center += fc.cube().position();
-      ++n;
-    }
-  ImGui::Text("%d selected", n);
-
-  if (n > 0) {
-    center /= float(n);
-    // Editing the centroid moves the whole selection by the delta.
-    glm::vec3 newCenter = center;
-    if (ImGui::DragFloat3("position", &newCenter.x, 0.05f)) {
-      glm::vec3 delta = newCenter - center;
-      for (auto &fc : m_fixtures)
-        if (fc.cube().selected())
-          fc.cube().setPosition(fc.cube().position() + delta);
-    }
-    if (ImGui::Button("Drop to ground (y=0)")) {
-      for (auto &fc : m_fixtures)
-        if (fc.cube().selected()) {
-          glm::vec3 p = fc.cube().position();
-          p.y = 0.0f;
-          fc.cube().setPosition(p);
-        }
-    }
-  } else {
-    ImGui::TextDisabled("(select fixtures to position them)");
-  }
-
-  ImGui::Separator();
-  ImGui::Text("Camera");
-  ImGui::DragFloat("zoom", &m_camDist, 0.2f, 1.0f, 200.0f);
-  ImGui::DragFloat3("target", &m_camTarget.x, 0.05f);
-  ImGui::TextDisabled("Scroll: zoom  -  Right-drag: pan");
-
-  ImGui::End();
-}
-
-void Application::runCommand(const char *line) {
-  if (!line || line[0] == '\0')
-    return;
-
-  m_cmdLog.push_back(std::string("> ") + line);
-  if (!m_commandsLoaded) {
-    m_cmdLog.emplace_back("  (commands not loaded)");
-    return;
-  }
-
-  if (!m_engine.command(line)) {
-    m_cmdLog.emplace_back("  parse error");
-    return;
-  }
-  // Tick the engine so the command's edits compose and resolve immediately.
-  m_engine.update();
-  const auto &prog = m_engine.programmer();
-
-  // Reflect the engine's programmer selection onto the cubes.
-  syncCubesFromEngine();
-
-  char msg[128];
-  std::snprintf(msg, sizeof(msg), "  ok [selection=%zu edits=%zu]",
-                prog.selection().size(), prog.edits().size());
-  m_cmdLog.emplace_back(msg);
-}
-
-void Application::renderGroupWindow() {
-  ImGui::Begin("Groups");
-
-  // Store the current selection as a new group (next free slot).
-  int selCount = int(m_engine.programmer().selection().size());
-  ImGui::BeginDisabled(selCount == 0);
-  if (ImGui::Button("Store selection as group")) {
-    m_engine.storeGroup();
-  }
-  ImGui::EndDisabled();
-  ImGui::SameLine();
-  ImGui::TextDisabled("(%d selected)", selCount);
-  ImGui::Separator();
-
-  const auto &groups = m_engine.stored().groups();
-  if (groups.empty()) {
-    ImGui::TextDisabled("No groups stored.");
-  } else {
-    for (const auto &[num, g] : groups) {
-      ImGui::PushID(int(num));
-      const std::string &name = g->name();
-      std::vector<uint16_t> fids = g->fids();
-
-      char label[160];
-      std::snprintf(label, sizeof(label), "#%u %s  (%zu fixtures)",
-                    unsigned(num), name.empty() ? "(unnamed)" : name.c_str(),
-                    fids.size());
-
-      if (ImGui::Button("Select")) {
-        m_engine.selectGroup(num);
-        m_engine.update();
-        syncCubesFromEngine();
-      }
-      ImGui::SameLine();
-      if (ImGui::TreeNode(label)) {
-        std::string ids;
-        for (size_t i = 0; i < fids.size(); ++i) {
-          if (i)
-            ids += ", ";
-          ids += std::to_string(fids[i]);
-        }
-        ImGui::TextWrapped("FIDs: %s", ids.c_str());
-        ImGui::TreePop();
-      }
-      ImGui::PopID();
-    }
-  }
-
-  ImGui::End();
-}
-
-void Application::renderColorPresetWindow() {
-  int selCount = int(m_engine.programmer().selection().size());
-  presetPoolUI(
-      "Color Presets", selCount, m_engine.stored().colorPresets(),
-      [&] {
-        m_engine.storeColorPreset(m_engine.stored().colorPresets().nextFree());
-      },
-      [&](uint32_t num) {
-        m_engine.recallColorPreset(num);
-        m_engine.update();
-      });
-}
-
-void Application::renderDimmerPresetWindow() {
-  int selCount = int(m_engine.programmer().selection().size());
-  presetPoolUI(
-      "Dimmer Presets", selCount, m_engine.stored().dimmerPresets(),
-      [&] {
-        m_engine.storeDimmerPreset(
-            m_engine.stored().dimmerPresets().nextFree());
-      },
-      [&](uint32_t num) {
-        m_engine.recallDimmerPreset(num);
-        m_engine.update();
-      });
-}
-
-void Application::renderCommandWindow() {
-  ImGui::SetNextWindowSize(ImVec2(420, 240), ImGuiCond_FirstUseEver);
-  ImGui::Begin("Command");
-
-  // Scrolling log.
-  const float footer = ImGui::GetFrameHeightWithSpacing();
-  ImGui::BeginChild("log", ImVec2(0, -footer), true,
-                    ImGuiWindowFlags_HorizontalScrollbar);
-  for (const auto &line : m_cmdLog)
-    ImGui::TextUnformatted(line.c_str());
-  if (ImGui::GetScrollY() >= ImGui::GetScrollMaxY())
-    ImGui::SetScrollHereY(1.0f);
-  ImGui::EndChild();
-
-  // Auto-focus: if the user starts typing anywhere and no other field is
-  // active, redirect the keystrokes into the command line.
-  if (ImGui::GetIO().InputQueueCharacters.Size > 0 && !ImGui::IsAnyItemActive())
-    ImGui::SetKeyboardFocusHere();
-
-  // Input line.
-  ImGui::SetNextItemWidth(-1.0f);
-  if (ImGui::InputText("##cmd", m_cmdInput, sizeof(m_cmdInput),
-                       ImGuiInputTextFlags_EnterReturnsTrue)) {
-    runCommand(m_cmdInput);
-    m_cmdInput[0] = '\0';
-    ImGui::SetKeyboardFocusHere(-1); // keep focus on the input
-  }
-  ImGui::End();
-}
-
-void Application::renderPatchWindow() {
-  ImGui::Begin("Patch");
-  ImGui::InputInt("universe", &m_patchUniverse);
-  ImGui::InputInt("amount", &m_patchAmount);
-  if (m_patchUniverse < 0)
-    m_patchUniverse = 0;
-  if (m_patchAmount < 0)
-    m_patchAmount = 0;
-  if (ImGui::Button("Patch"))
-    patchFixtures(uint16_t(m_patchUniverse), uint16_t(m_patchAmount));
-  ImGui::End();
-}
-
-void Application::renderFixtureListWindow() {
-  ImGui::Begin("Fixtures");
-  ImGui::Text("%zu fixtures patched", m_fixtures.size());
-  ImGui::TextDisabled("Click to select, Ctrl+Click to multi-select");
-  ImGui::Separator();
-
-  const ImGuiTableFlags flags =
-      ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
-      ImGuiTableFlags_Resizable | ImGuiTableFlags_ScrollY |
-      ImGuiTableFlags_SizingStretchProp;
-
-  if (ImGui::BeginTable("fixtures", 6, flags)) {
-    ImGui::TableSetupScrollFreeze(0, 1); // keep header visible
-    ImGui::TableSetupColumn("FID", ImGuiTableColumnFlags_WidthFixed);
-    ImGui::TableSetupColumn("Name");
-    ImGui::TableSetupColumn("Universe", ImGuiTableColumnFlags_WidthFixed);
-    ImGui::TableSetupColumn("Address", ImGuiTableColumnFlags_WidthFixed);
-    ImGui::TableSetupColumn("Parameters");
-    ImGui::TableSetupColumn("Out", ImGuiTableColumnFlags_WidthFixed);
-    ImGui::TableHeadersRow();
-
-    for (size_t i = 0; i < m_fixtures.size(); ++i) {
-      FixtureCube &fc = m_fixtures[i];
-      const uint16_t fid = fc.fids().front();
-      std::shared_ptr<LightEngine::Fixtures::Fixture> fx =
-          m_engine.getFixture(fid);
-
-      ImGui::PushID(int(i));
-      ImGui::TableNextRow();
-
-      // Column 0: FID (also the selectable that drives row selection).
-      ImGui::TableSetColumnIndex(0);
-      char fidLabel[32];
-      std::snprintf(fidLabel, sizeof(fidLabel), "%u", unsigned(fid));
-      if (ImGui::Selectable(fidLabel, fc.cube().selected(),
-                            ImGuiSelectableFlags_SpanAllColumns)) {
-        bool ctrl = ImGui::GetIO().KeyCtrl;
-        if (!ctrl)
-          for (auto &other : m_fixtures)
-            other.cube().setSelected(false);
-        fc.cube().setSelected(ctrl ? !fc.cube().selected() : true);
-        syncEngineFromCubes();
-      }
-
-      // Column 1: name.
-      ImGui::TableSetColumnIndex(1);
-      ImGui::TextUnformatted(fx ? fx->Name().c_str() : "?");
-
-      // Column 2: universe.
-      ImGui::TableSetColumnIndex(2);
-      ImGui::Text("%u", unsigned(fc.universe()));
-
-      // Column 3: DMX address (1-based) and footprint.
-      ImGui::TableSetColumnIndex(3);
-      if (fx)
-        ImGui::Text("%u (%u ch)", unsigned(fx->start + 1),
-                    unsigned(fx->Footprint()));
-      else
-        ImGui::TextDisabled("-");
-
-      // Column 4: parameters (attribute list).
-      ImGui::TableSetColumnIndex(4);
-      if (fx) {
-        std::string params;
-        for (const auto &p : fx->Parameters()) {
-          if (!params.empty())
-            params += ", ";
-          params += attributeName(p.Attribute());
-        }
-        ImGui::TextUnformatted(params.c_str());
-      } else {
-        ImGui::TextDisabled("-");
-      }
-
-      // Column 5: live output color swatch.
-      ImGui::TableSetColumnIndex(5);
-      const glm::vec3 &c = fc.cube().color();
-      ImGui::ColorButton("##swatch", ImVec4(c.r, c.g, c.b, 1.0f),
-                         ImGuiColorEditFlags_NoTooltip, ImVec2(18, 18));
-
-      ImGui::PopID();
-    }
-    ImGui::EndTable();
-  }
-  ImGui::End();
-}
-
 void Application::clearProgrammer() {
   m_engine.clear();
   m_engine.update();
@@ -654,7 +242,10 @@ void Application::handleMove() {
   if (io.WantCaptureMouse && !m_moving)
     return;
 
-  const glm::vec2 mouse(io.MousePos.x, io.MousePos.y);
+  // With multi-viewport enabled, io.MousePos is in OS desktop coordinates;
+  // the ground/projection math wants coordinates relative to the main window.
+  const ImVec2 vp = ImGui::GetMainViewport()->Pos;
+  const glm::vec2 mouse(io.MousePos.x - vp.x, io.MousePos.y - vp.y);
 
   if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
     if (auto hit = groundHit(mouse)) {
@@ -682,7 +273,11 @@ void Application::handleSelection() {
   if (io.WantCaptureMouse && !m_dragging)
     return;
 
-  const glm::vec2 mouse(io.MousePos.x, io.MousePos.y);
+  // With multi-viewport enabled, io.MousePos is in OS desktop coordinates.
+  // Keep a window-local copy for projection; the marquee is drawn back in
+  // desktop coordinates (the foreground draw list expects those).
+  const ImVec2 vp = ImGui::GetMainViewport()->Pos;
+  const glm::vec2 mouse(io.MousePos.x - vp.x, io.MousePos.y - vp.y);
 
   if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
     m_dragging = true;
@@ -692,15 +287,17 @@ void Application::handleSelection() {
   if (!m_dragging)
     return;
 
-  // Screen-space rectangle (in ImGui/window pixels).
+  // Screen-space rectangle (window-local logical points).
   glm::vec2 lo = glm::min(m_dragStart, mouse);
   glm::vec2 hi = glm::max(m_dragStart, mouse);
 
-  // Draw the marquee.
+  // Draw the marquee (offset back into desktop coordinates).
   ImGui::GetForegroundDrawList()->AddRectFilled(
-      ImVec2(lo.x, lo.y), ImVec2(hi.x, hi.y), IM_COL32(255, 205, 25, 40));
+      ImVec2(lo.x + vp.x, lo.y + vp.y), ImVec2(hi.x + vp.x, hi.y + vp.y),
+      IM_COL32(255, 205, 25, 40));
   ImGui::GetForegroundDrawList()->AddRect(
-      ImVec2(lo.x, lo.y), ImVec2(hi.x, hi.y), IM_COL32(255, 205, 25, 200));
+      ImVec2(lo.x + vp.x, lo.y + vp.y), ImVec2(hi.x + vp.x, hi.y + vp.y),
+      IM_COL32(255, 205, 25, 200));
 
   if (ImGui::IsMouseReleased(ImGuiMouseButton_Left)) {
     m_dragging = false;

@@ -60,7 +60,7 @@ endif()
 # --------------------------------------------------
 # Example executable (src/)
 # --------------------------------------------------
-file(GLOB GUITEST_SOURCES CONFIGURE_DEPENDS src/*.cpp)
+file(GLOB GUITEST_SOURCES CONFIGURE_DEPENDS src/*.cpp src/tools/*.cpp)
 add_executable(guitest ${GUITEST_SOURCES})
 target_include_directories(guitest PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
