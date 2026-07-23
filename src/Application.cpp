@@ -9,24 +9,32 @@
 #include "LightEngine/Engine/FixtureBuilder.h"
 #include "LightEngine/Fixture/Fixture.h"
 #include "LightEngine/GDTF/LogicalChannel.h"
+#include "Utils/Network/Interfaces.h"
 
 #include <algorithm>
 #include <cmath>
 
-namespace {
-// h in [0,1], s/v in [0,1] -> RGB.
-glm::vec3 hsv2rgb(float h, float s, float v) {
-  float r = std::fabs(h * 6.0f - 3.0f) - 1.0f;
-  float g = 2.0f - std::fabs(h * 6.0f - 2.0f);
-  float b = 2.0f - std::fabs(h * 6.0f - 4.0f);
-  glm::vec3 c = glm::clamp(glm::vec3(r, g, b), 0.0f, 1.0f);
-  return v * glm::mix(glm::vec3(1.0f), c, s);
-}
+namespace
+{
+  // h in [0,1], s/v in [0,1] -> RGB.
+  glm::vec3 hsv2rgb(float h, float s, float v)
+  {
+    float r = std::fabs(h * 6.0f - 3.0f) - 1.0f;
+    float g = 2.0f - std::fabs(h * 6.0f - 2.0f);
+    float b = 2.0f - std::fabs(h * 6.0f - 4.0f);
+    glm::vec3 c = glm::clamp(glm::vec3(r, g, b), 0.0f, 1.0f);
+    return v * glm::mix(glm::vec3(1.0f), c, s);
+  }
 } // namespace
 
-bool Application::init() {
+bool Application::init()
+{
   if (!m_window.init())
     return false;
+
+  const auto ip = Utils::Network::Interfaces::primaryIP();
+  m_engine.setSourceName("Test");
+  m_engine.setIP(ip);
 
   initImGui();
   m_shader = std::make_unique<Shader>("data/cube.vert", "data/cube.frag");
@@ -44,7 +52,8 @@ bool Application::init() {
   return true;
 }
 
-void Application::initImGui() {
+void Application::initImGui()
+{
   IMGUI_CHECKVERSION();
   ImGui::CreateContext();
   ImGuiIO &io = ImGui::GetIO();
@@ -55,7 +64,8 @@ void Application::initImGui() {
 
   // When viewports are enabled, tweak WindowRounding/WindowBg so platform
   // windows (dragged outside the main window) look identical to internal ones.
-  if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable) {
+  if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable)
+  {
     ImGuiStyle &style = ImGui::GetStyle();
     style.WindowRounding = 0.0f;
     style.Colors[ImGuiCol_WindowBg].w = 1.0f;
@@ -64,7 +74,8 @@ void Application::initImGui() {
   ImGui_ImplOpenGL3_Init("#version 330");
 }
 
-void Application::patchFixtures(uint16_t universe, uint16_t amount) {
+void Application::patchFixtures(uint16_t universe, uint16_t amount)
+{
   using namespace LightEngine;
   using GDTF::Attribute;
 
@@ -79,7 +90,8 @@ void Application::patchFixtures(uint16_t universe, uint16_t amount) {
   auto fids = m_engine.patch(rgb, universe, amount);
 
   m_fixtures.reserve(m_fixtures.size() + fids.size());
-  for (uint16_t fid : fids) {
+  for (uint16_t fid : fids)
+  {
     FixtureCube fc({fid}, universe);
     fc.cube().setColor(hsv2rgb(0.6f, 0.7f, 0.9f));
     m_fixtures.push_back(std::move(fc));
@@ -88,11 +100,13 @@ void Application::patchFixtures(uint16_t universe, uint16_t amount) {
   m_camDist = m_rowWidth * 0.6f + 8.0f;
 }
 
-void Application::layoutFixtures() {
+void Application::layoutFixtures()
+{
   const float spacing = 2.0f;
   const size_t n = m_fixtures.size();
   m_rowWidth = spacing * (n > 0 ? n - 1 : 0);
-  for (size_t i = 0; i < n; ++i) {
+  for (size_t i = 0; i < n; ++i)
+  {
     // Color is driven by the engine each frame (see update()); only lay out
     // the row position here.
     m_fixtures[i].cube().setPosition(
@@ -100,8 +114,10 @@ void Application::layoutFixtures() {
   }
 }
 
-void Application::run() {
-  while (!m_window.shouldClose()) {
+void Application::run()
+{
+  while (!m_window.shouldClose())
+  {
     glfwPollEvents();
 
     ImGui_ImplOpenGL3_NewFrame();
@@ -128,7 +144,8 @@ void Application::run() {
     // Render any windows that were dragged outside the main window as their own
     // OS-level windows. Must restore our GL context afterwards.
     ImGuiIO &io = ImGui::GetIO();
-    if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable) {
+    if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable)
+    {
       GLFWwindow *backup = glfwGetCurrentContext();
       ImGui::UpdatePlatformWindows();
       ImGui::RenderPlatformWindowsDefault();
@@ -139,7 +156,8 @@ void Application::run() {
   }
 }
 
-void Application::renderUI() {
+void Application::renderUI()
+{
   // ImGui::Begin("Scene");
   // ImGui::Checkbox("spin", &m_spinning);
   // ImGui::SliderFloat("angle", &m_angle, 0.0f, 360.0f);
@@ -156,23 +174,27 @@ void Application::renderUI() {
   renderCommandWindow();
 }
 
-void Application::clearProgrammer() {
+void Application::clearProgrammer()
+{
   m_engine.clear();
   m_engine.update();
   syncCubesFromEngine();
 }
 
-void Application::handleHotkeys() {
+void Application::handleHotkeys()
+{
   ImGuiIO &io = ImGui::GetIO();
   // Only act as a global shortcut when no text field is capturing input.
-  if (!io.WantTextInput && ImGui::IsKeyPressed(ImGuiKey_C, false)) {
+  if (!io.WantTextInput && ImGui::IsKeyPressed(ImGuiKey_C, false))
+  {
     clearProgrammer();
     // Swallow the 'c' so it doesn't also get typed into the command line.
     io.InputQueueCharacters.resize(0);
   }
 }
 
-void Application::syncEngineFromCubes() {
+void Application::syncEngineFromCubes()
+{
   std::vector<uint16_t> fids;
   for (auto &fc : m_fixtures)
     if (fc.cube().selected())
@@ -180,15 +202,18 @@ void Application::syncEngineFromCubes() {
   m_engine.programmer().select(fids);
 }
 
-void Application::syncCubesFromEngine() {
+void Application::syncCubesFromEngine()
+{
   std::vector<uint16_t> sel = m_engine.programmer().selection().fids();
-  for (auto &fc : m_fixtures) {
+  for (auto &fc : m_fixtures)
+  {
     bool s = std::find(sel.begin(), sel.end(), fc.fids().front()) != sel.end();
     fc.cube().setSelected(s);
   }
 }
 
-std::optional<glm::vec3> Application::groundHit(const glm::vec2 &mouse) const {
+std::optional<glm::vec3> Application::groundHit(const glm::vec2 &mouse) const
+{
   ImGuiIO &io = ImGui::GetIO();
   if (io.DisplaySize.x <= 0 || io.DisplaySize.y <= 0)
     return std::nullopt;
@@ -214,19 +239,22 @@ std::optional<glm::vec3> Application::groundHit(const glm::vec2 &mouse) const {
   return origin + dir * t;
 }
 
-void Application::handleCamera() {
+void Application::handleCamera()
+{
   ImGuiIO &io = ImGui::GetIO();
   if (io.WantCaptureMouse)
     return;
 
   // Zoom with the scroll wheel (exponential feel).
-  if (io.MouseWheel != 0.0f) {
+  if (io.MouseWheel != 0.0f)
+  {
     m_camDist *= std::pow(0.9f, io.MouseWheel);
     m_camDist = glm::clamp(m_camDist, 1.0f, 200.0f);
   }
 
   // Pan with the right mouse button: shift the target along the view plane.
-  if (ImGui::IsMouseDragging(ImGuiMouseButton_Right)) {
+  if (ImGui::IsMouseDragging(ImGuiMouseButton_Right))
+  {
     ImVec2 d = ImGui::GetMouseDragDelta(ImGuiMouseButton_Right);
     ImGui::ResetMouseDragDelta(ImGuiMouseButton_Right);
     // Camera basis in world space (rows of the view rotation).
@@ -237,7 +265,8 @@ void Application::handleCamera() {
   }
 }
 
-void Application::handleMove() {
+void Application::handleMove()
+{
   ImGuiIO &io = ImGui::GetIO();
   if (io.WantCaptureMouse && !m_moving)
     return;
@@ -247,15 +276,19 @@ void Application::handleMove() {
   const ImVec2 vp = ImGui::GetMainViewport()->Pos;
   const glm::vec2 mouse(io.MousePos.x - vp.x, io.MousePos.y - vp.y);
 
-  if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
-    if (auto hit = groundHit(mouse)) {
+  if (ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+  {
+    if (auto hit = groundHit(mouse))
+    {
       m_moving = true;
       m_prevGround = *hit;
     }
   }
 
-  if (m_moving) {
-    if (auto hit = groundHit(mouse)) {
+  if (m_moving)
+  {
+    if (auto hit = groundHit(mouse))
+    {
       glm::vec3 delta = *hit - m_prevGround;
       m_prevGround = *hit;
       for (auto &fc : m_fixtures)
@@ -267,7 +300,8 @@ void Application::handleMove() {
   }
 }
 
-void Application::handleSelection() {
+void Application::handleSelection()
+{
   ImGuiIO &io = ImGui::GetIO();
   // Ignore drags that start on / interact with an ImGui window.
   if (io.WantCaptureMouse && !m_dragging)
@@ -279,7 +313,8 @@ void Application::handleSelection() {
   const ImVec2 vp = ImGui::GetMainViewport()->Pos;
   const glm::vec2 mouse(io.MousePos.x - vp.x, io.MousePos.y - vp.y);
 
-  if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+  if (ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+  {
     m_dragging = true;
     m_dragStart = mouse;
   }
@@ -299,7 +334,8 @@ void Application::handleSelection() {
       ImVec2(lo.x + vp.x, lo.y + vp.y), ImVec2(hi.x + vp.x, hi.y + vp.y),
       IM_COL32(255, 205, 25, 200));
 
-  if (ImGui::IsMouseReleased(ImGuiMouseButton_Left)) {
+  if (ImGui::IsMouseReleased(ImGuiMouseButton_Left))
+  {
     m_dragging = false;
 
     // ImGui coords are in logical points; convert to framebuffer pixels.
@@ -308,9 +344,11 @@ void Application::handleSelection() {
     float sy = dispSize.y > 0 ? float(m_fbHeight) / dispSize.y : 1.0f;
 
     const glm::mat4 vp = m_proj * m_view;
-    for (auto &fc : m_fixtures) {
+    for (auto &fc : m_fixtures)
+    {
       glm::vec4 clip = vp * glm::vec4(fc.cube().position(), 1.0f);
-      if (clip.w <= 0.0f) { // behind the camera
+      if (clip.w <= 0.0f)
+      { // behind the camera
         fc.cube().setSelected(false);
         continue;
       }
@@ -326,7 +364,8 @@ void Application::handleSelection() {
   }
 }
 
-void Application::update(float dt) {
+void Application::update(float dt)
+{
   if (m_spinning)
     m_angle += dt * 45.0f;
   if (m_angle >= 360.0f)
@@ -335,7 +374,8 @@ void Application::update(float dt) {
   // Compose the engine's layers into this frame's merged values.
   m_engine.update(dt);
 
-  for (auto &fc : m_fixtures) {
+  for (auto &fc : m_fixtures)
+  {
     // Read the fixture's live color/intensity from the engine frame.
     const LightEngine::Engine::FixtureValues *v =
         m_engine.values(fc.fids().front());
@@ -343,7 +383,8 @@ void Application::update(float dt) {
     // Hue/sat come from the color contribution; brightness from the dimmer.
     // An unlit fixture (no intensity) renders black, mirroring the real state.
     float hue = 0.0f, sat = 0.0f;
-    if (v && v->color) {
+    if (v && v->color)
+    {
       hue = v->color->h / 360.0f;
       sat = v->color->s;
     }
@@ -355,7 +396,8 @@ void Application::update(float dt) {
   }
 }
 
-void Application::render() {
+void Application::render()
+{
   glfwGetFramebufferSize(m_window.window, &m_fbWidth, &m_fbHeight);
   glViewport(0, 0, m_fbWidth, m_fbHeight);
   glClearColor(m_clearColor.r, m_clearColor.g, m_clearColor.b, 1.0f);
@@ -365,10 +407,13 @@ void Application::render() {
   const glm::vec3 dir = glm::normalize(glm::vec3(0.0f, 0.4f, 1.0f));
   glm::vec3 eye = m_camTarget + dir * m_camDist;
   m_view = glm::lookAt(eye, m_camTarget, glm::vec3(0.0f, 1.0f, 0.0f));
+  // Far plane must clear the camera distance plus the whole row, or a wide
+  // patch (large m_rowWidth -> large m_camDist) gets clipped and renders empty.
+  const float farPlane = m_camDist + m_rowWidth + 50.0f;
   m_proj = glm::perspective(
       glm::radians(45.0f),
       m_fbHeight > 0 ? float(m_fbWidth) / float(m_fbHeight) : 1.0f, 0.1f,
-      100.0f);
+      farPlane);
 
   m_shader->use();
   m_shader->setMat4("uView", m_view);
@@ -377,7 +422,8 @@ void Application::render() {
     fc.cube().draw(m_shader->id());
 }
 
-Application::~Application() {
+Application::~Application()
+{
   ImGui_ImplOpenGL3_Shutdown();
   ImGui_ImplGlfw_Shutdown();
   ImGui::DestroyContext();

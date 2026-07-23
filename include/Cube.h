@@ -70,4 +70,7 @@ private:
   bool m_selected = false;
   GLuint m_vao = 0;
   GLuint m_vbo = 0;
+  // Separate line geometry (12 edges) for the wireframe outline pass.
+  GLuint m_edgeVao = 0;
+  GLuint m_edgeVbo = 0;
 };
