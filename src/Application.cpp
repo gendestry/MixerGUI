@@ -74,7 +74,8 @@ void Application::initImGui()
   ImGui_ImplOpenGL3_Init("#version 330");
 }
 
-void Application::patchFixtures(uint16_t universe, uint16_t amount)
+void Application::patchFixtures(uint16_t universe, uint16_t amount,
+                               bool asGroup)
 {
   using namespace LightEngine;
   using GDTF::Attribute;
@@ -94,10 +95,21 @@ void Application::patchFixtures(uint16_t universe, uint16_t amount)
   {
     FixtureCube fc({fid}, universe);
     fc.cube().setColor(hsv2rgb(0.6f, 0.7f, 0.9f));
+    // New fixtures start at the origin (0,0,0); the user positions them via
+    // the Transform window.
+    fc.cube().setPosition(glm::vec3(0.0f));
     m_fixtures.push_back(std::move(fc));
   }
-  layoutFixtures();
-  m_camDist = m_rowWidth * 0.6f + 8.0f;
+
+  // Optionally store the freshly patched fixtures as a new group. Select them
+  // in the programmer first (storeGroup snapshots the current selection).
+  if (asGroup && !fids.empty())
+  {
+    m_engine.programmer().select(fids);
+    m_engine.storeGroup();
+    m_engine.update();
+    syncCubesFromEngine();
+  }
 }
 
 void Application::layoutFixtures()
@@ -166,7 +178,8 @@ void Application::renderUI()
   // ImGui::End();
 
   renderToolbar();
-  renderPatchWindow();
+  renderTransformWindow();
+  renderPatchPopup();
   renderFixtureListWindow();
   renderGroupWindow();
   renderColorPresetWindow();
@@ -184,13 +197,17 @@ void Application::clearProgrammer()
 void Application::handleHotkeys()
 {
   ImGuiIO &io = ImGui::GetIO();
-  // Only act as a global shortcut when no text field is capturing input.
-  if (!io.WantTextInput && ImGui::IsKeyPressed(ImGuiKey_C, false))
-  {
+
+  // If the user is starting to type with no field focused, those keystrokes
+  // are meant for the command line (see the auto-focus in renderCommandWindow).
+  // Don't let printable-key shortcuts steal them.
+  if (io.InputQueueCharacters.Size > 0 && !ImGui::IsAnyItemActive())
+    return;
+
+  // Clear the programmer with Escape (a non-printable key, so it never
+  // conflicts with typing a command).
+  if (!io.WantTextInput && ImGui::IsKeyPressed(ImGuiKey_Escape, false))
     clearProgrammer();
-    // Swallow the 'c' so it doesn't also get typed into the command line.
-    io.InputQueueCharacters.resize(0);
-  }
 }
 
 void Application::syncEngineFromCubes()
@@ -262,6 +279,18 @@ void Application::handleCamera()
     glm::vec3 up(m_view[0][1], m_view[1][1], m_view[2][1]);
     float scale = m_camDist * 0.0015f;
     m_camTarget += (-d.x * right + d.y * up) * scale;
+  }
+
+  // Orbit with the middle mouse button: yaw/pitch around the target.
+  if (ImGui::IsMouseDragging(ImGuiMouseButton_Middle))
+  {
+    ImVec2 d = ImGui::GetMouseDragDelta(ImGuiMouseButton_Middle);
+    ImGui::ResetMouseDragDelta(ImGuiMouseButton_Middle);
+    m_camYaw -= d.x * 0.005f;
+    m_camPitch += d.y * 0.005f;
+    // Clamp pitch to just short of the poles to avoid gimbal flip.
+    const float lim = glm::radians(89.0f);
+    m_camPitch = glm::clamp(m_camPitch, -lim, lim);
   }
 }
 
@@ -390,9 +419,7 @@ void Application::update(float dt)
     }
     float intensity = (v && v->intensity) ? *v->intensity : 0.0f;
     fc.cube().setColor(hsv2rgb(hue, sat, 1.0f) * intensity);
-
-    // Spin each cube in place; its row position was set in patchFixtures().
-    fc.cube().setRotation(glm::vec3(0.0f, m_angle, 0.0f));
+    // Position and rotation are user-driven (Transform window); don't clobber.
   }
 }
 
@@ -403,8 +430,10 @@ void Application::render()
   glClearColor(m_clearColor.r, m_clearColor.g, m_clearColor.b, 1.0f);
   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-  // Eye sits behind and above the target at m_camDist along a fixed heading.
-  const glm::vec3 dir = glm::normalize(glm::vec3(0.0f, 0.4f, 1.0f));
+  // Eye orbits the target at m_camDist along the yaw/pitch heading.
+  const glm::vec3 dir(std::sin(m_camYaw) * std::cos(m_camPitch),
+                      std::sin(m_camPitch),
+                      std::cos(m_camYaw) * std::cos(m_camPitch));
   glm::vec3 eye = m_camTarget + dir * m_camDist;
   m_view = glm::lookAt(eye, m_camTarget, glm::vec3(0.0f, 1.0f, 0.0f));
   // Far plane must clear the camera distance plus the whole row, or a wide

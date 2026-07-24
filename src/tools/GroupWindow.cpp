@@ -2,6 +2,7 @@
 
 #include <imgui.h>
 
+#include <algorithm>
 #include <cstdio>
 #include <string>
 #include <vector>
@@ -35,7 +36,16 @@ void Application::renderGroupWindow() {
                     fids.size());
 
       if (ImGui::Button("Select")) {
-        m_engine.selectGroup(num);
+        if (ImGui::GetIO().KeyShift) {
+          // Shift-click: add this group's fixtures to the current selection.
+          std::vector<uint16_t> sel = m_engine.programmer().selection().fids();
+          for (uint16_t f : fids)
+            if (std::find(sel.begin(), sel.end(), f) == sel.end())
+              sel.push_back(f);
+          m_engine.programmer().select(sel);
+        } else {
+          m_engine.selectGroup(num);
+        }
         m_engine.update();
         syncCubesFromEngine();
       }

@@ -8,6 +8,7 @@
 #include <imgui.h>
 
 #include <string>
+#include <utility>
 
 // --- Vector icons drawn onto a square toggle button (no icon font needed) ---
 
@@ -72,6 +73,81 @@ inline void drawClearIcon(ImDrawList *dl, ImVec2 c, float r, ImU32 col) {
   dl->AddCircle(c, r, col, 0, 1.8f);
   const float d = r * 0.707f;
   dl->AddLine(ImVec2(c.x - d, c.y - d), ImVec2(c.x + d, c.y + d), col, 1.8f);
+}
+
+// Patch (grid / plus) icon: a small cell grid with a plus, hinting at adding
+// channels to a universe.
+inline void drawPatchIcon(ImDrawList *dl, ImVec2 c, float r, ImU32 col) {
+  dl->AddRect(ImVec2(c.x - r, c.y - r), ImVec2(c.x + r, c.y + r), col, 0.0f, 0,
+              1.5f);
+  dl->AddLine(ImVec2(c.x, c.y - r), ImVec2(c.x, c.y + r), col, 1.2f);
+  dl->AddLine(ImVec2(c.x - r, c.y), ImVec2(c.x + r, c.y), col, 1.2f);
+}
+
+// A boxed, titled 3-axis attribute editor (Position, Rotation, ... — anything
+// with x/y/z components). Each axis is edited as either a single value (all
+// selected items share it) or a "from .. to" range that is spread linearly
+// across the `count` items in order.
+//
+//   get(axis)         -> std::pair<float,float> {first item, last item} value
+//   set(axis, i, val) -> write item i's value on that axis
+//   rangeMode[3]        per-axis single/range toggle (caller-owned, persists)
+//
+// Returns true if any value changed this frame.
+template <class GetFn, class SetFn>
+inline bool axisSpreadEditor(const char *title, int count, bool rangeMode[3],
+                             float speed, GetFn get, SetFn set) {
+  bool changed = false;
+  const char *axisName[3] = {"x", "y", "z"};
+  const float fieldW = 70.0f;
+
+  ImGui::PushID(title);
+  ImGui::TextUnformatted(title);
+  ImGui::BeginChild("box", ImVec2(0, 0),
+                    ImGuiChildFlags_Borders | ImGuiChildFlags_AutoResizeY);
+
+  for (int a = 0; a < 3; ++a) {
+    ImGui::PushID(a);
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextUnformatted(axisName[a]);
+    ImGui::SameLine();
+
+    std::pair<float, float> cur = get(a);
+    if (!rangeMode[a]) {
+      float v = cur.first;
+      ImGui::SetNextItemWidth(fieldW);
+      if (ImGui::DragFloat("##v", &v, speed)) {
+        for (int i = 0; i < count; ++i)
+          set(a, i, v);
+        changed = true;
+      }
+    } else {
+      float from = cur.first, to = cur.second;
+      ImGui::SetNextItemWidth(fieldW);
+      bool e = ImGui::DragFloat("##from", &from, speed);
+      ImGui::SameLine();
+      ImGui::TextUnformatted("..");
+      ImGui::SameLine();
+      ImGui::SetNextItemWidth(fieldW);
+      e |= ImGui::DragFloat("##to", &to, speed);
+      if (e) {
+        for (int i = 0; i < count; ++i) {
+          float t = count > 1 ? float(i) / float(count - 1) : 0.0f;
+          set(a, i, from + (to - from) * t);
+        }
+        changed = true;
+      }
+    }
+    ImGui::SameLine();
+    // Toggle single <-> range spread for this axis.
+    if (ImGui::SmallButton(rangeMode[a] ? "range" : "single"))
+      rangeMode[a] = !rangeMode[a];
+    ImGui::PopID();
+  }
+
+  ImGui::EndChild();
+  ImGui::PopID();
+  return changed;
 }
 
 // Shared UI for a numbered preset pool: a "Store" button (captures the current
